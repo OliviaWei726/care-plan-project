@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>All Orders</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #222; }
+    h1 { font-size: 1.3rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 16px; }
+    th { background: #1a56db; color: #fff; text-align: left; padding: 8px 12px; }
+    td { padding: 8px 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+    tr:hover td { background: #f5f8ff; }
+    .sub { color: #666; font-size: 0.85rem; margin-bottom: 16px; }
+    a { color: #1a56db; text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<h1>All Orders</h1>
+<p class="sub">{{ orders|length }} order(s) in memory &nbsp;·&nbsp; <a href="/">＋ New Order</a></p>
+
+{% if orders %}
+<table>
+  <thead>
+    <tr>
+      <th>Order ID</th>
+      <th>Patient</th>
+      <th>MRN</th>
+      <th>Medication</th>
+      <th>Primary Dx</th>
+      <th>Provider</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for o in orders %}
+    <tr>
+      <td>{{ o.id }}</td>
+      <td>{{ o.patient_first_name }} {{ o.patient_last_name }}</td>
+      <td>{{ o.patient_mrn }}</td>
+      <td>{{ o.medication_name }}</td>
+      <td>{{ o.primary_diagnosis }}</td>
+      <td>{{ o.referring_provider }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No orders yet.</p>
+{% endif %}
+
+</body>
+</html>
