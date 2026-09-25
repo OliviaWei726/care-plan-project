@@ -15,8 +15,20 @@ ALLOWED_HOSTS = ["*"]
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.staticfiles",
+    "django.contrib.auth",
     "app",
 ]
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME":     os.environ.get("DB_NAME",     "careplan"),
+        "USER":     os.environ.get("DB_USER",     "careplan"),
+        "PASSWORD": os.environ.get("DB_PASSWORD", "careplan"),
+        "HOST":     os.environ.get("DB_HOST",     "db"),
+        "PORT":     os.environ.get("DB_PORT",     "5432"),
+    }
+}
 
 MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
@@ -43,3 +55,28 @@ WSGI_APPLICATION = "config.wsgi.application"
 STATIC_URL = "/static/"
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {
+            "format": "{asctime} {levelname} {name} — {message}",
+            "style": "{",
+            "datefmt": "%H:%M:%S",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+}

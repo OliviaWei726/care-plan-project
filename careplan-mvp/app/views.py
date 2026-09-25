@@ -1,67 +1,23 @@
-import uuid
-import anthropic
+import json
+import logging
+import redis
 from django.conf import settings
-from django.shortcuts import render, redirect
+from django.http import JsonResponse
+from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 
-# ─────────────────────────────────────────────
-# In-memory store  (lost on restart — MVP only)
-# ─────────────────────────────────────────────
-ORDERS = {}   # order_id -> dict
+from .models import Patient, Provider, Order, CarePlan
 
+logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────
-# LLM
-# ─────────────────────────────────────────────
-def generate_care_plan(order: dict) -> str:
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+# Redis 连接（模块级别，复用同一个连接）
+redis_client = redis.Redis(
+    host=settings.REDIS_HOST,
+    port=settings.REDIS_PORT,
+    decode_responses=True,
+)
 
-    additional_dx = ", ".join(order["additional_diagnoses"]) or "None"
-    med_history   = "\n".join(f"  - {m}" for m in order["medication_history"]) or "  None provided"
-
-    prompt = f"""You are a clinical pharmacist at a specialty pharmacy.
-Generate a care plan for the following patient and medication order.
-
---- PATIENT & ORDER ---
-Patient: {order["patient_first_name"]} {order["patient_last_name"]}
-MRN: {order["patient_mrn"]}
-Primary Diagnosis (ICD-10): {order["primary_diagnosis"]}
-Additional Diagnoses: {additional_dx}
-Medication: {order["medication_name"]}
-Referring Provider: {order["referring_provider"]} (NPI: {order["referring_provider_npi"]})
-
-Medication History:
-{med_history}
-
-Patient Records / Clinical Notes:
-{order["patient_records"]}
-
---- INSTRUCTIONS ---
-Write a care plan with exactly these four sections, in order:
-
-1. Problem List / Drug Therapy Problems (DTPs)
-   List each problem as a bullet point.
-
-2. Goals (SMART)
-   Include: primary outcome goal, safety goal, process goal.
-
-3. Pharmacist Interventions / Plan
-   Cover: dosing & administration, premedication, monitoring during therapy,
-   hydration/organ protection as relevant, adverse event management.
-
-4. Monitoring Plan & Lab Schedule
-   Specify: pre-treatment labs/vitals, monitoring during treatment, post-treatment follow-up.
-
-Be specific to this patient's diagnosis and medication. Use clinical language appropriate
-for a pharmacist audience. Do not add any section beyond the four above.
-"""
-
-    message = client.messages.create(
-        model="claude-3-5-haiku-20241022",
-        max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return message.content[0].text
+QUEUE_NAME = "careplan_queue"
 
 
 # ─────────────────────────────────────────────
@@ -74,34 +30,56 @@ def order_form(request):
 
 @require_http_methods(["POST"])
 def submit_order(request):
-    # Parse form — split textarea lines into lists
+    logger.info("=" * 50)
+    logger.info("[1] POST /submit/ — 收到请求，来自 IP: %s", request.META.get("REMOTE_ADDR"))
+
     def lines(field):
         raw = request.POST.get(field, "")
-        return [l.strip() for l in raw.splitlines() if l.strip()]
+        return "\n".join(l.strip() for l in raw.splitlines() if l.strip())
 
-    order = {
-        "id":                    str(uuid.uuid4())[:8],
-        "patient_first_name":    request.POST.get("patient_first_name", "").strip(),
-        "patient_last_name":     request.POST.get("patient_last_name", "").strip(),
-        "patient_mrn":           request.POST.get("patient_mrn", "").strip(),
-        "referring_provider":    request.POST.get("referring_provider", "").strip(),
-        "referring_provider_npi":request.POST.get("referring_provider_npi", "").strip(),
-        "primary_diagnosis":     request.POST.get("primary_diagnosis", "").strip(),
-        "medication_name":       request.POST.get("medication_name", "").strip(),
-        "additional_diagnoses":  lines("additional_diagnoses"),
-        "medication_history":    lines("medication_history"),
-        "patient_records":       request.POST.get("patient_records", "").strip(),
-        "care_plan":             None,
-    }
+    # Provider — get or create by NPI
+    npi           = request.POST.get("referring_provider_npi", "").strip()
+    provider_name = request.POST.get("referring_provider", "").strip()
+    provider, _   = Provider.objects.get_or_create(npi=npi, defaults={"name": provider_name})
 
-    # Call LLM synchronously — user waits
-    order["care_plan"] = generate_care_plan(order)
+    # Patient — get or create by MRN
+    mrn        = request.POST.get("patient_mrn", "").strip()
+    patient, _ = Patient.objects.get_or_create(mrn=mrn, defaults={
+        "first_name": request.POST.get("patient_first_name", "").strip(),
+        "last_name":  request.POST.get("patient_last_name", "").strip(),
+    })
 
-    ORDERS[order["id"]] = order
+    # Order
+    order = Order.objects.create(
+        patient=patient,
+        provider=provider,
+        medication_name=request.POST.get("medication_name", "").strip(),
+        primary_diagnosis=request.POST.get("primary_diagnosis", "").strip(),
+        additional_diagnoses=lines("additional_diagnoses"),
+        medication_history=lines("medication_history"),
+        patient_records=request.POST.get("patient_records", "").strip(),
+    )
+    logger.info("[2] Order #%d 已存入 DB", order.pk)
 
-    return render(request, "result.html", {"order": order})
+    # CarePlan 先存 pending，内容为空
+    care_plan = CarePlan.objects.create(order=order, status=CarePlan.STATUS_PENDING)
+    logger.info("[3] CarePlan #%d 已存入 DB，status=pending", care_plan.pk)
+
+    # 把 careplan_id 推进 Redis 队列
+    task = {"careplan_id": care_plan.pk}
+    redis_client.rpush(QUEUE_NAME, json.dumps(task))
+    logger.info("[4] careplan_id=%d 已推入 Redis 队列 '%s'", care_plan.pk, QUEUE_NAME)
+    logger.info("=" * 50)
+
+    # 立刻返回，不等 LLM
+    return JsonResponse({
+        "status":      "accepted",
+        "careplan_id": care_plan.pk,
+        "message":     "订单已收到，care plan 正在后台生成",
+    }, status=202)
 
 
 @require_http_methods(["GET"])
 def order_list(request):
-    return render(request, "orders.html", {"orders": list(ORDERS.values())})
+    orders = Order.objects.select_related("patient", "provider").order_by("-created_at")
+    return render(request, "orders.html", {"orders": orders})

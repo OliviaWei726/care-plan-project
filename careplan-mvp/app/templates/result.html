@@ -42,12 +42,12 @@
     <span><strong>Patient:</strong> {{ order.patient_first_name }} {{ order.patient_last_name }}</span>
     <span><strong>MRN:</strong> {{ order.patient_mrn }}</span>
     <span><strong>Dx:</strong> {{ order.primary_diagnosis }}</span>
-    <span><strong>Provider:</strong> {{ order.referring_provider }}</span>
+    <span><strong>Provider:</strong> {{ order.provider.name }}</span>
     <span><strong>Order ID:</strong> {{ order.id }}</span>
   </div>
 </div>
 
-<div class="care-plan">{{ order.care_plan }}</div>
+<div class="care-plan">{{ care_plan.content }}</div>
 
 <div class="actions">
   <button class="btn-primary" onclick="window.print()">🖨 Print Care Plan</button>
