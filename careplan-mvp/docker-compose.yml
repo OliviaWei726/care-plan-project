@@ -27,5 +27,18 @@ services:
       - db
       - redis
 
+  # Celery worker：和 web 用同一个镜像、同一份代码，只是启动命令不同。
+  # web 负责收请求、把任务放进 Redis；worker 负责从 Redis 取任务、调 LLM、写 DB。
+  worker:
+    build: .
+    command: celery -A config worker -l info
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+
 volumes:
   postgres_data:

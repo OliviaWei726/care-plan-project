@@ -29,17 +29,28 @@
       <th>Medication</th>
       <th>Primary Dx</th>
       <th>Provider</th>
+      <th>Care Plan</th>
     </tr>
   </thead>
   <tbody>
     {% for o in orders %}
     <tr>
       <td>{{ o.id }}</td>
-      <td>{{ o.patient_first_name }} {{ o.patient_last_name }}</td>
-      <td>{{ o.patient_mrn }}</td>
+      <td>{{ o.patient.first_name }} {{ o.patient.last_name }}</td>
+      <td>{{ o.patient.mrn }}</td>
       <td>{{ o.medication_name }}</td>
       <td>{{ o.primary_diagnosis }}</td>
-      <td>{{ o.referring_provider }}</td>
+      <td>{{ o.provider.name }}</td>
+      {# 页面只在加载时读一次 DB：worker 完成后不刷新，这里会一直显示 pending #}
+      <td>
+        {% if o.care_plan %}
+          <strong>{{ o.care_plan.status }}</strong>
+          {% if o.care_plan.generated_at %}<br><small>{{ o.care_plan.generated_at|date:"H:i:s" }}</small>{% endif %}
+          {% if o.care_plan.content %}
+            <details><summary>View</summary><pre style="white-space:pre-wrap">{{ o.care_plan.content }}</pre></details>
+          {% endif %}
+        {% else %}—{% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>

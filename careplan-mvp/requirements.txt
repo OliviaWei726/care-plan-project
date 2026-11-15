@@ -2,4 +2,8 @@ django==4.2
 anthropic>=0.40.0
 python-dotenv>=1.0.1
 psycopg2-binary==2.9.9
-redis==5.0.1
+# celery[redis]：让 pip 按 kombu 声明的兼容范围安装 redis 和 packaging。
+# 之前单独锁 redis==5.0.1 + 裸 celery，会漏装 packaging（kombu 的 redis transport 要用），
+# worker 启动时报 ModuleNotFoundError: No module named 'packaging'；
+# 而且 kombu 5.7 声明只兼容 redis>=6.4。views.py 里直接用的 redis.Redis 也由这里装上。
+celery[redis]>=5.4,<6
